@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+option go_package = "./log";
+
+
+package pb;
+
+message LogRequest {
+    bytes line = 1;
+	string id = 2;
+	map<string, string> metadata = 3;
+}
+
+message LogResponse {
+    uint64 result = 1;
+}
+
+service AddService {
+    rpc Log (LogRequest) returns (LogResponse) {}
+}
