@@ -4,6 +4,7 @@ import "time"
 
 // Generic event like log-start log-end
 type Trigger struct {
+	Id       string
 	Type     string
 	Metadata map[string]string
 }

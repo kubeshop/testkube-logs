@@ -13,6 +13,14 @@ type S3Subscriber struct {
 	Bucket string
 }
 
-func (s *S3Subscriber) Listen(id string, e events.LogChunk) error {
+func (s *S3Subscriber) Notify(id string, e events.LogChunk) error {
 	panic("not implemented")
+}
+
+func (s *S3Subscriber) Stop(id string) error {
+	panic("not implemented")
+}
+
+func (s *S3Subscriber) Name() string {
+	return "s3"
 }

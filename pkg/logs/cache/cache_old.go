@@ -1,3 +1,4 @@
+// TODO remove it
 package logs
 
 import (
@@ -13,15 +14,15 @@ const (
 	ConsumerName = "LOGSCONSUMER"
 )
 
-func NewLogsCache(js jetstream.JetStream) LogsCache {
-	return LogsCache{js: js}
+func newLogsCache(js jetstream.JetStream) logsCache {
+	return logsCache{js: js}
 }
 
-type LogsCache struct {
+type logsCache struct {
 	js jetstream.JetStream
 }
 
-func (l LogsCache) Init(ctx context.Context) error {
+func (l logsCache) Init(ctx context.Context) error {
 	// Create a stream
 	s, err := l.js.CreateStream(ctx, jetstream.StreamConfig{
 		Name:     StreamName,
@@ -35,13 +36,13 @@ func (l LogsCache) Init(ctx context.Context) error {
 	return err
 }
 
-func (l LogsCache) Publish(ctx context.Context, executionId string, line []byte) error {
+func (l logsCache) Publish(ctx context.Context, executionId string, line []byte) error {
 	// INFO: first result var is publisher ACK can be used for only-once delivery (double ACK pattern)
 	_, err := l.js.Publish(ctx, StreamName+"."+executionId, line)
 	return err
 }
 
-func (l LogsCache) GetRange(ctx context.Context, executionId string, from, count int) (chan []byte, error) {
+func (l logsCache) GetRange(ctx context.Context, executionId string, from, count int) (chan []byte, error) {
 	ch := make(chan []byte)
 
 	c, err := l.js.CreateOrUpdateConsumer(ctx, StreamName, jetstream.ConsumerConfig{
@@ -85,7 +86,7 @@ func (l LogsCache) GetRange(ctx context.Context, executionId string, from, count
 	return ch, nil
 }
 
-func (l LogsCache) Listen(ctx context.Context, executionId string) (chan []byte, error) {
+func (l logsCache) Listen(ctx context.Context, executionId string) (chan []byte, error) {
 
 	ch := make(chan []byte)
 
