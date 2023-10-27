@@ -38,7 +38,7 @@ func TestLogs(t *testing.T) {
 		// and initialized log service
 		log := NewLogsService(ec, js)
 
-		// with 4 consumers
+		// with 4 consumers (the same consumer is added 4 times so it'll receive 4 times more messages)
 		log.AddConsumer(c)
 		log.AddConsumer(c)
 		log.AddConsumer(c)
@@ -86,9 +86,10 @@ func TestLogs(t *testing.T) {
 	})
 }
 
+// Mock consumer
 var _ consumer.Consumer = &MockConsumer{}
 
-// NewS3Subscriber creates new DummySubscriber which will send data to local MinIO bucket
+// NewMockConsumer creates new mocked consumer to check amount of messages passed to it
 func NewMockConsumer() *MockConsumer {
 	return &MockConsumer{
 		Messages: []events.LogChunk{},
