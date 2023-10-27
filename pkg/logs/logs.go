@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/kubeshop/testkube-logs/pkg/logger"
+	"github.com/kubeshop/testkube-logs/pkg/logs/consumer"
 	"github.com/kubeshop/testkube-logs/pkg/logs/events"
-	"github.com/kubeshop/testkube-logs/pkg/logs/subscriber"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"go.uber.org/zap"
@@ -17,39 +18,48 @@ const (
 
 func NewLogsService(nats *nats.EncodedConn, js jetstream.JetStream) *LogsService {
 	return &LogsService{
-		nats:        nats,
-		subscribers: []subscriber.Subscriber{},
-		js:          js,
+		nats:      nats,
+		consumers: []consumer.Consumer{},
+		js:        js,
+		log:       logger.Init(),
 	}
 }
 
 type LogsService struct {
-	log         *zap.SugaredLogger
-	nats        *nats.EncodedConn
-	js          jetstream.JetStream
-	subscribers []subscriber.Subscriber
+	log       *zap.SugaredLogger
+	nats      *nats.EncodedConn
+	js        jetstream.JetStream
+	consumers []consumer.Consumer
 }
 
-func (l *LogsService) AddSubscriber(s subscriber.Subscriber) {
-	l.subscribers = append(l.subscribers, s)
+func (l *LogsService) AddSubscriber(s consumer.Consumer) {
+	l.consumers = append(l.consumers, s)
 }
 
 func (l *LogsService) Run(ctx context.Context) error {
 
+	// LOGIC is like follows:
+
+	// 1. Handle start stop events from nats
+	//    assuming after start event something is pushing data to the stream
+	//    it can be our handler or some other service (like NAT beat)
+
+	l.log.Infow("starting logs service")
+
 	// TODO refactor abstract NATS logic from here?
 	// TODO consider using durable topics for queue with Ack / Nack
-
 	l.nats.QueueSubscribe("events.logs.stop", "startevents", func(event events.Trigger) {
 		// TODO stop all consumers from consuming data for given execution id
 	})
 
+	// 2. For start event we must build stream for given execution id and start consuming it
 	// this one will must a queue group each pod will get it's own
 	l.nats.QueueSubscribe("events.logs.start", "startevents", func(event events.Trigger) {
 		log := l.log.With("id", event.Id)
 
 		// create stream for incoming logs
 		streamName := StreamName + event.Id
-		_, err := l.js.CreateStream(ctx, jetstream.StreamConfig{
+		s, err := l.js.CreateStream(ctx, jetstream.StreamConfig{
 			Name:     streamName,
 			Subjects: []string{streamName + ".*"},
 			// MaxAge:   time.Minute,
@@ -61,10 +71,12 @@ func (l *LogsService) Run(ctx context.Context) error {
 			return
 		}
 
+		log.Infow("stream created", "stream", s)
+
 		// for each consumer create nats consumer and consume stream from it e.g. cloud s3 or others
-		for _, sub := range l.subscribers {
-			name := "lc" + event.Id + "." + sub.Name()
-			c, err := l.js.CreateOrUpdateConsumer(ctx, StreamName, jetstream.ConsumerConfig{
+		for _, consumer := range l.consumers {
+			name := "lc" + event.Id + "_" + consumer.Name()
+			c, err := l.js.CreateOrUpdateConsumer(ctx, streamName, jetstream.ConsumerConfig{
 				Name:          name,
 				Durable:       name,
 				FilterSubject: streamName,
@@ -72,14 +84,15 @@ func (l *LogsService) Run(ctx context.Context) error {
 			})
 
 			if err != nil {
-				log.Errorw("error creating consumer", "error", err)
+				log.Errorw("error creating consumer", "consumer", consumer.Name(), "error", err)
+				return
 			}
 
 			cons, err := c.Consume(func(msg jetstream.Msg) {
 				// deliver to subscriber
 				logChunk := events.LogChunk{}
 				json.Unmarshal(msg.Data(), &logChunk)
-				err := sub.Notify(event.Id, logChunk)
+				err := consumer.Notify(event.Id, logChunk)
 
 				if err != nil {
 					if err := msg.Nak(); err != nil {
@@ -102,6 +115,8 @@ func (l *LogsService) Run(ctx context.Context) error {
 			}
 		}
 	})
+
+	<-ctx.Done()
 
 	// TODO
 	// assuming this one will be scaled to multiple instances

@@ -7,6 +7,7 @@ import (
 	"github.com/kubeshop/testkube-logs/pkg/events"
 	"github.com/kubeshop/testkube-logs/pkg/logger"
 	"github.com/kubeshop/testkube-logs/pkg/logs"
+	"github.com/kubeshop/testkube-logs/pkg/logs/consumer"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -34,6 +35,7 @@ func main() {
 	js := Must(jetstream.New(natsConn))
 
 	svc := logs.NewLogsService(natsEncodedConn, js)
+	svc.AddSubscriber(consumer.NewDummyConsumer())
 	svc.Run(ctx)
 }
 

@@ -1,11 +1,11 @@
-package subscriber
+package consumer
 
 import "github.com/kubeshop/testkube-logs/pkg/logs/events"
 
-var _ Subscriber = &CloudSubscriber{}
+var _ Consumer = &CloudSubscriber{}
 
-// NewCloudSubscriber creates new CloudSubscriber which will send data to local MinIO bucket
-func NewCloudSubscriber() *CloudSubscriber {
+// NewCloudConsumer creates new CloudSubscriber which will send data to local MinIO bucket
+func NewCloudConsumer() *CloudSubscriber {
 	return &CloudSubscriber{}
 }
 
