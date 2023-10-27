@@ -8,6 +8,7 @@ import (
 
 func runServerOnPort(port int) *server.Server {
 	opts := natsserver.DefaultTestOptions
+	opts.JetStream = true
 	opts.Port = port
 	return natsserver.RunServer(&opts)
 }

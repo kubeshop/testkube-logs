@@ -3,6 +3,7 @@ package logs
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/kubeshop/testkube-logs/pkg/logger"
 	"github.com/kubeshop/testkube-logs/pkg/logs/consumer"
@@ -13,7 +14,9 @@ import (
 )
 
 const (
-	StreamName = "LOGS"
+	StreamName = "lg"
+	StartTopic = "events.logs.start"
+	StopTopic  = "events.logs.stop"
 )
 
 func NewLogsService(nats *nats.EncodedConn, js jetstream.JetStream) *LogsService {
@@ -22,6 +25,7 @@ func NewLogsService(nats *nats.EncodedConn, js jetstream.JetStream) *LogsService
 		consumers: []consumer.Consumer{},
 		js:        js,
 		log:       logger.Init(),
+		Ready:     make(chan struct{}, 1),
 	}
 }
 
@@ -30,13 +34,15 @@ type LogsService struct {
 	nats      *nats.EncodedConn
 	js        jetstream.JetStream
 	consumers []consumer.Consumer
+
+	Ready chan struct{}
 }
 
-func (l *LogsService) AddSubscriber(s consumer.Consumer) {
+func (l *LogsService) AddConsumer(s consumer.Consumer) {
 	l.consumers = append(l.consumers, s)
 }
 
-func (l *LogsService) Run(ctx context.Context) error {
+func (l *LogsService) Run(ctx context.Context) (err error) {
 
 	// LOGIC is like follows:
 
@@ -59,29 +65,30 @@ func (l *LogsService) Run(ctx context.Context) error {
 
 		// create stream for incoming logs
 		streamName := StreamName + event.Id
-		s, err := l.js.CreateStream(ctx, jetstream.StreamConfig{
-			Name:     streamName,
-			Subjects: []string{streamName + ".*"},
-			// MaxAge:   time.Minute,
+		s, err := l.js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
+			Name:    streamName,
 			Storage: jetstream.FileStorage, // durable stream
 		})
 
 		if err != nil {
-			l.log.Errorw("error creating stream", "error", err, "id", event.Id)
+			l.log.Errorw("error creating stream", "error", err, "id", event.Id, "stream", streamName)
 			return
 		}
 
 		log.Infow("stream created", "stream", s)
 
 		// for each consumer create nats consumer and consume stream from it e.g. cloud s3 or others
-		for _, consumer := range l.consumers {
-			name := "lc" + event.Id + "_" + consumer.Name()
+		for i, consumer := range l.consumers {
+			name := fmt.Sprintf("lc_%s_%s_%d", event.Id, consumer.Name(), i)
+
 			c, err := l.js.CreateOrUpdateConsumer(ctx, streamName, jetstream.ConsumerConfig{
-				Name:          name,
-				Durable:       name,
-				FilterSubject: streamName,
+				Name:    name,
+				Durable: name,
+				// FilterSubject: streamName,
 				DeliverPolicy: jetstream.DeliverAllPolicy,
 			})
+
+			log.Infow("consumer created", "consumer", c.CachedInfo(), "stream", streamName)
 
 			if err != nil {
 				log.Errorw("error creating consumer", "consumer", consumer.Name(), "error", err)
@@ -89,6 +96,9 @@ func (l *LogsService) Run(ctx context.Context) error {
 			}
 
 			cons, err := c.Consume(func(msg jetstream.Msg) {
+
+				log.Infow("got message", "consumer", consumer.Name(), "id", event.Id, "data", string(msg.Data()))
+
 				// deliver to subscriber
 				logChunk := events.LogChunk{}
 				json.Unmarshal(msg.Data(), &logChunk)
@@ -107,6 +117,8 @@ func (l *LogsService) Run(ctx context.Context) error {
 				}
 			})
 
+			log.Infow("consumer started", "consumer", consumer.Name(), "id", event.Id, "stream", streamName)
+
 			// TODO add `cons` and stop it on stop event
 			var _ = cons
 
@@ -115,6 +127,8 @@ func (l *LogsService) Run(ctx context.Context) error {
 			}
 		}
 	})
+
+	l.Ready <- struct{}{}
 
 	<-ctx.Done()
 
