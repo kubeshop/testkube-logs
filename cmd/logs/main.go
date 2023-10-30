@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	log := logger.Init().With("sercice", "logs")
+	log := logger.Init().With("service", "Logs")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
